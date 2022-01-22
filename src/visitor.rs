@@ -18,10 +18,12 @@ use shakmaty::Outcome;
 use shakmaty::san::SanPlus;
 
 use crate::types::{RawComment, RawHeader, Nag, Skip};
+use async_trait::async_trait;
 
 /// Consumes games from a reader.
 ///
 /// ![Flow](https://github.com/niklasf/rust-pgn-reader/blob/master/docs/visitor.png?raw=true)
+#[async_trait(?Send)]
 pub trait Visitor {
     /// Value produced by the visitor after reading a game.
     type Result;
@@ -39,7 +41,7 @@ pub trait Visitor {
     fn end_headers(&mut self) -> Skip { Skip(false) }
 
     /// Called for each move, like `Nf3+`.
-    fn san(&mut self, _san_plus: SanPlus) { }
+    async fn san(&mut self, _san_plus: SanPlus) { }
     /// Called for each numeric annotation glyph like `!?` or `$7`.
     fn nag(&mut self, _nag: Nag) { }
     /// Called for each `{ comment }`.

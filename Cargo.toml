@@ -15,6 +15,7 @@ memchr = "2.2"
 btoi = "0.4"
 shakmaty = "0.20"
 slice-deque = "0.3"
+async-trait = "0.1.52"
 
 [dev-dependencies]
 crossbeam = "0.8"

@@ -27,7 +27,9 @@ use crate::types::{Nag, Skip, RawComment, RawHeader};
 use crate::visitor::{Visitor, SkipVisitor};
 
 const MIN_BUFFER_SIZE: usize = 8192;
+use async_trait::async_trait;
 
+#[async_trait(?Send)]
 trait ReadPgn {
     type Err;
 
@@ -244,7 +246,7 @@ trait ReadPgn {
         end
     }
 
-    fn read_movetext<V: Visitor>(&mut self, visitor: &mut V) -> Result<(), Self::Err> {
+    async fn read_movetext<V: Visitor>(&mut self, visitor: &mut V) -> Result<(), Self::Err> {
         while let Some(ch) = self.fill_buffer_and_peek()? {
             match ch {
                 b'{' => {
@@ -321,7 +323,7 @@ trait ReadPgn {
                         visitor.san(SanPlus {
                             san: San::Castle(side),
                             suffix,
-                        });
+                        }).await;
                     } else {
                         let token_end = self.find_token_end(0);
                         self.consume(token_end);
@@ -388,7 +390,7 @@ trait ReadPgn {
                     let token_end = self.find_token_end(1);
                     if ch > b'9' || ch == b'-' {
                         if let Ok(san) = SanPlus::from_ascii(&self.buffer()[..token_end]) {
-                            visitor.san(san);
+                            visitor.san(san).await;
                         }
                     }
                     self.consume(token_end);
@@ -455,7 +457,7 @@ trait ReadPgn {
         Ok(())
     }
 
-    fn read_game<V: Visitor>(&mut self, visitor: &mut V) -> Result<Option<V::Result>, Self::Err> {
+    async fn read_game<V: Visitor>(&mut self, visitor: &mut V) -> Result<Option<V::Result>, Self::Err> {
         self.skip_bom()?;
         self.skip_whitespace()?;
 
@@ -467,7 +469,7 @@ trait ReadPgn {
         visitor.begin_headers();
         self.read_headers(visitor)?;
         if let Skip(false) = visitor.end_headers() {
-            self.read_movetext(visitor)?;
+            self.read_movetext(visitor).await?;
         } else {
             self.skip_movetext()?;
         }
@@ -476,8 +478,8 @@ trait ReadPgn {
         Ok(Some(visitor.end_game()))
     }
 
-    fn skip_game(&mut self) -> Result<bool, Self::Err> {
-        self.read_game(&mut SkipVisitor).map(|r| r.is_some())
+    async fn skip_game(&mut self) -> Result<bool, Self::Err> {
+        self.read_game(&mut SkipVisitor).await.map(|r| r.is_some())
     }
 }
 
@@ -565,8 +567,8 @@ impl<R: Read> BufferedReader<R> {
     ///
     /// * I/O error from the underlying reader.
     /// * Irrecoverable parser errors.
-    pub fn read_game<V: Visitor>(&mut self, visitor: &mut V) -> io::Result<Option<V::Result>> {
-        ReadPgn::read_game(self, visitor)
+    pub async  fn read_game<V: Visitor>(&mut self, visitor: &mut V) -> io::Result<Option<V::Result>> {
+        ReadPgn::read_game(self, visitor).await
     }
 
     /// Skip a single game, if any.
@@ -575,8 +577,8 @@ impl<R: Read> BufferedReader<R> {
     ///
     /// * I/O error from the underlying reader.
     /// * Irrecoverable parser errors.
-    pub fn skip_game<V: Visitor>(&mut self) -> io::Result<bool> {
-        ReadPgn::skip_game(self)
+    pub async fn skip_game<V: Visitor>(&mut self) -> io::Result<bool> {
+        ReadPgn::skip_game(self).await
     }
 
     /// Read all games.
@@ -585,8 +587,8 @@ impl<R: Read> BufferedReader<R> {
     ///
     /// * I/O error from the underlying reader.
     /// * Irrecoverable parser errors.
-    pub fn read_all<V: Visitor>(&mut self, visitor: &mut V) -> io::Result<()> {
-        while self.read_game(visitor)?.is_some() { }
+    pub async fn read_all<V: Visitor>(&mut self, visitor: &mut V) -> io::Result<()> {
+        while self.read_game(visitor).await?.is_some() { }
         Ok(())
     }
 
@@ -661,18 +663,18 @@ pub struct IntoIter<'a, V: 'a, R> {
     reader: BufferedReader<R>,
 }
 
-impl<'a, V: Visitor, R: Read> Iterator for IntoIter<'a, V, R> {
-    type Item = Result<V::Result, io::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.reader.read_game(self.visitor) {
-            Ok(Some(result)) => Some(Ok(result)),
-            Ok(None) => None,
-            Err(err) => Some(Err(err)),
-        }
-    }
-}
-
+// impl<'a, V: Visitor, R: Read> Iterator for IntoIter<'a, V, R> {
+//     type Item = Result<V::Result, io::Error>;
+// 
+//     fn next(&mut self) -> Option<Self::Item> {
+//         match self.reader.read_game(self.visitor).await {
+//             Ok(Some(result)) => Some(Ok(result)),
+//             Ok(None) => None,
+//             Err(err) => Some(Err(err)),
+//         }
+//     }
+// }
+// 
 #[cfg(test)]
 mod tests {
     use super::*;
