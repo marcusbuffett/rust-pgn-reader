@@ -1004,7 +1004,7 @@ trait ReadPgn {
         end
     }
 
-    async fn read_movetext<V: Visitor>(&mut self, visitor: &mut V) -> Result<(), Self::Err> {
+    fn read_movetext<V: Visitor>(&mut self, visitor: &mut V) -> Result<(), Self::Err> {
         while let Some(ch) = self.fill_buffer_and_peek()? {
             match ch {
                 b'{' => {
@@ -1220,10 +1220,7 @@ trait ReadPgn {
         Ok(())
     }
 
-    async fn read_game<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-    ) -> Result<Option<V::Result>, Self::Err> {
+    fn read_game<V: Visitor>(&mut self, visitor: &mut V) -> Result<Option<V::Result>, Self::Err> {
         self.skip_bom()?;
         self.skip_whitespace()?;
 
@@ -1235,7 +1232,7 @@ trait ReadPgn {
         visitor.begin_headers();
         self.read_headers(visitor)?;
         if let Skip(false) = visitor.end_headers() {
-            self.read_movetext(visitor).await?;
+            self.read_movetext(visitor)?;
         } else {
             self.skip_movetext()?;
         }
@@ -1244,8 +1241,8 @@ trait ReadPgn {
         Ok(Some(visitor.end_game()))
     }
 
-    async fn skip_game(&mut self) -> Result<bool, Self::Err> {
-        self.read_game(&mut SkipVisitor).await.map(|r| r.is_some())
+    fn skip_game(&mut self) -> Result<bool, Self::Err> {
+        self.read_game(&mut SkipVisitor).map(|r| r.is_some())
     }
 }
 
@@ -1313,11 +1310,8 @@ impl<R: Read> BufferedReader<R> {
     ///
     /// * I/O error from the underlying reader.
     /// * Irrecoverable parser errors.
-    pub async fn read_game<V: Visitor>(
-        &mut self,
-        visitor: &mut V,
-    ) -> io::Result<Option<V::Result>> {
-        ReadPgn::read_game(self, visitor).await
+    pub fn read_game<V: Visitor>(&mut self, visitor: &mut V) -> io::Result<Option<V::Result>> {
+        ReadPgn::read_game(self, visitor)
     }
 
     /// Skip a single game, if any.
@@ -1326,8 +1320,8 @@ impl<R: Read> BufferedReader<R> {
     ///
     /// * I/O error from the underlying reader.
     /// * Irrecoverable parser errors.
-    pub async fn skip_game<V: Visitor>(&mut self) -> io::Result<bool> {
-        ReadPgn::skip_game(self).await
+    pub fn skip_game<V: Visitor>(&mut self) -> io::Result<bool> {
+        ReadPgn::skip_game(self)
     }
 
     /// Read all games.
@@ -1336,8 +1330,8 @@ impl<R: Read> BufferedReader<R> {
     ///
     /// * I/O error from the underlying reader.
     /// * Irrecoverable parser errors.
-    pub async fn read_all<V: Visitor>(&mut self, visitor: &mut V) -> io::Result<()> {
-        while self.read_game(visitor).await?.is_some() {}
+    pub fn read_all<V: Visitor>(&mut self, visitor: &mut V) -> io::Result<()> {
+        while self.read_game(visitor)?.is_some() {}
         Ok(())
     }
 
