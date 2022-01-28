@@ -117,5 +117,5 @@ pub trait AsyncVisitor {
     fn outcome(&mut self, _outcome: Option<Outcome>) {}
 
     /// Called after parsing a game. Can produce a custom result.
-    fn end_game(&mut self) -> Self::Result;
+    async fn end_game(&mut self) -> Self::Result;
 }

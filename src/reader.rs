@@ -487,7 +487,7 @@ trait AsyncReadPgn {
         }
 
         self.skip_whitespace()?;
-        Ok(Some(visitor.end_game()))
+        Ok(Some(visitor.end_game().await))
     }
 }
 
