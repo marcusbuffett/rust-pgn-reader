@@ -14,17 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::min;
-use std::io::{self, Chain, Cursor, Read};
-use std::ptr;
+use std::{
+    cmp::min,
+    io::{self, Chain, Cursor, Read},
+    ptr,
+};
 
+use shakmaty::{
+    san::{San, SanPlus, Suffix},
+    CastlingSide, Color, Outcome,
+};
 use slice_deque::SliceDeque;
 
-use shakmaty::san::{San, SanPlus, Suffix};
-use shakmaty::{CastlingSide, Color, Outcome};
-
-use crate::types::{Nag, RawComment, RawHeader, Skip};
-use crate::visitor::{AsyncVisitor, SkipVisitor, Visitor};
+use crate::{
+    types::{Nag, RawComment, RawHeader, Skip},
+    visitor::{AsyncVisitor, SkipVisitor, Visitor},
+};
 
 const MIN_BUFFER_SIZE: usize = 8192;
 use async_trait::async_trait;
@@ -609,6 +614,18 @@ impl<R: Read> AsyncBufferedReader<R> {
     /// Gets the remaining bytes in the buffer and the underlying reader.
     pub fn into_inner(self) -> Chain<Cursor<Buffer>, R> {
         Cursor::new(self.buffer).chain(self.inner)
+    }
+
+    /// Returns whether the reader has another game to parse, but does not
+    /// actually parse it.
+    ///
+    /// # Errors
+    ///
+    /// * I/O error from the underlying reader.
+    pub fn has_more(&mut self) -> io::Result<bool> {
+        self.skip_bom()?;
+        self.skip_whitespace()?;
+        Ok(self.fill_buffer_and_peek()?.is_some())
     }
 }
 

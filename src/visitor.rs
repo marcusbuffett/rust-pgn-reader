@@ -14,11 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use shakmaty::san::SanPlus;
-use shakmaty::Outcome;
+use async_trait::async_trait;
+use shakmaty::{san::SanPlus, Outcome};
 
 use crate::types::{Nag, RawComment, RawHeader, Skip};
-use async_trait::async_trait;
 
 /// Consumes games from a reader.
 ///
