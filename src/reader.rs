@@ -1,31 +1,14 @@
-// This file is part of the pgn-reader library.
-// Copyright (C) 2017-2018 Niklas Fiekas <niklas.fiekas@backscattering.de>
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 use std::{
     cmp::min,
     io::{self, Chain, Cursor, Read},
-    ptr,
 };
 
 use shakmaty::{
     san::{San, SanPlus, Suffix},
     CastlingSide, Color, Outcome,
 };
-use slice_deque::SliceDeque;
 
+// use slice_deque::SliceDeque;
 use crate::{
     types::{Nag, RawComment, RawHeader, Skip},
     visitor::{AsyncVisitor, SkipVisitor, Visitor},
@@ -496,26 +479,6 @@ trait AsyncReadPgn {
     }
 }
 
-/// Internal read ahead buffer.
-#[derive(Debug, Clone)]
-pub struct Buffer {
-    inner: SliceDeque<u8>,
-}
-
-impl Buffer {
-    fn new() -> Buffer {
-        Buffer {
-            inner: SliceDeque::with_capacity(MIN_BUFFER_SIZE * 2),
-        }
-    }
-}
-
-impl AsRef<[u8]> for Buffer {
-    fn as_ref(&self) -> &[u8] {
-        self.inner.as_ref()
-    }
-}
-
 /// A buffered PGN reader.
 #[derive(Debug)]
 pub struct AsyncBufferedReader<R> {
@@ -558,17 +521,6 @@ impl<R: Read> AsyncBufferedReader<R> {
             inner,
             buffer: Buffer::new(),
         };
-
-        unsafe {
-            // Initialize the entire ring buffer, so that reading into the
-            // tail-head slice is always safe.
-            //
-            // Use https://doc.rust-lang.org/std/io/struct.Initializer.html
-            // once stabilized.
-            let uninitialized = reader.buffer.inner.tail_head_slice();
-            assert!(uninitialized.len() >= 2 * MIN_BUFFER_SIZE);
-            ptr::write_bytes(uninitialized.as_mut_ptr(), 0, uninitialized.len());
-        }
 
         reader
     }
@@ -633,24 +585,18 @@ impl<R: Read> AsyncReadPgn for AsyncBufferedReader<R> {
     type Err = io::Error;
 
     fn fill_buffer_and_peek(&mut self) -> io::Result<Option<u8>> {
-        while self.buffer.inner.len() < MIN_BUFFER_SIZE {
-            unsafe {
-                let size = {
-                    // This is safe because we have initialized the entire
-                    // buffer in the constructor.
-                    let remainder = self.buffer.inner.tail_head_slice();
-                    self.inner.read(remainder)?
-                };
+        while self.buffer.inner.available_data() < MIN_BUFFER_SIZE {
+            let remainder = self.buffer.inner.space();
+            let size = self.inner.read(remainder)?;
 
-                if size == 0 {
-                    break;
-                }
-
-                self.buffer.inner.move_tail(size as isize);
+            if size == 0 {
+                break;
             }
+
+            self.buffer.inner.fill(size);
         }
 
-        Ok(self.buffer.inner.front().cloned())
+        Ok(self.buffer.inner.data().first().cloned())
     }
 
     fn invalid_data() -> io::Error {
@@ -658,19 +604,15 @@ impl<R: Read> AsyncReadPgn for AsyncBufferedReader<R> {
     }
 
     fn buffer(&self) -> &[u8] {
-        self.buffer.inner.as_slice()
+        self.buffer.inner.data()
     }
 
     fn consume(&mut self, bytes: usize) {
-        // This is unconditionally safe with a fully initialized buffer.
-        debug_assert!(bytes <= MIN_BUFFER_SIZE * 2);
-        unsafe {
-            self.buffer.inner.move_head(bytes as isize);
-        }
+        self.buffer.inner.consume(bytes);
     }
 
     fn peek(&self) -> Option<u8> {
-        self.buffer.inner.front().cloned()
+        self.buffer.inner.data().first().cloned()
     }
 }
 
@@ -820,7 +762,7 @@ trait ReadPgn {
     fn invalid_data() -> Self::Err;
 
     fn peek(&self) -> Option<u8> {
-        self.buffer().get(0).cloned()
+        self.buffer().first().cloned()
     }
 
     fn bump(&mut self) -> Option<u8> {
@@ -1263,6 +1205,26 @@ trait ReadPgn {
     }
 }
 
+/// Internal read ahead buffer.
+#[derive(Debug, Clone)]
+pub struct Buffer {
+    inner: circular::Buffer,
+}
+
+impl Buffer {
+    fn new() -> Buffer {
+        Buffer {
+            inner: circular::Buffer::with_capacity(MIN_BUFFER_SIZE * 2),
+        }
+    }
+}
+
+impl AsRef<[u8]> for Buffer {
+    fn as_ref(&self) -> &[u8] {
+        self.inner.data()
+    }
+}
+
 /// A buffered PGN reader.
 #[derive(Debug)]
 pub struct BufferedReader<R> {
@@ -1301,23 +1263,10 @@ impl<R: Read> BufferedReader<R> {
     /// # }
     /// ```
     pub fn new(inner: R) -> BufferedReader<R> {
-        let mut reader = BufferedReader {
+        BufferedReader {
             inner,
             buffer: Buffer::new(),
-        };
-
-        unsafe {
-            // Initialize the entire ring buffer, so that reading into the
-            // tail-head slice is always safe.
-            //
-            // Use https://doc.rust-lang.org/std/io/struct.Initializer.html
-            // once stabilized.
-            let uninitialized = reader.buffer.inner.tail_head_slice();
-            assert!(uninitialized.len() >= 2 * MIN_BUFFER_SIZE);
-            ptr::write_bytes(uninitialized.as_mut_ptr(), 0, uninitialized.len());
         }
-
-        reader
     }
 
     /// Read a single game, if any, and returns the result produced by the
@@ -1375,24 +1324,18 @@ impl<R: Read> ReadPgn for BufferedReader<R> {
     type Err = io::Error;
 
     fn fill_buffer_and_peek(&mut self) -> io::Result<Option<u8>> {
-        while self.buffer.inner.len() < MIN_BUFFER_SIZE {
-            unsafe {
-                let size = {
-                    // This is safe because we have initialized the entire
-                    // buffer in the constructor.
-                    let remainder = self.buffer.inner.tail_head_slice();
-                    self.inner.read(remainder)?
-                };
+        while self.buffer.inner.available_data() < MIN_BUFFER_SIZE {
+            let remainder = self.buffer.inner.space();
+            let size = self.inner.read(remainder)?;
 
-                if size == 0 {
-                    break;
-                }
-
-                self.buffer.inner.move_tail(size as isize);
+            if size == 0 {
+                break;
             }
+
+            self.buffer.inner.fill(size);
         }
 
-        Ok(self.buffer.inner.front().cloned())
+        Ok(self.buffer.inner.data().first().cloned())
     }
 
     fn invalid_data() -> io::Error {
@@ -1400,18 +1343,14 @@ impl<R: Read> ReadPgn for BufferedReader<R> {
     }
 
     fn buffer(&self) -> &[u8] {
-        self.buffer.inner.as_slice()
+        self.buffer.inner.data()
     }
 
     fn consume(&mut self, bytes: usize) {
-        // This is unconditionally safe with a fully initialized buffer.
-        debug_assert!(bytes <= MIN_BUFFER_SIZE * 2);
-        unsafe {
-            self.buffer.inner.move_head(bytes as isize);
-        }
+        self.buffer.inner.consume(bytes);
     }
 
     fn peek(&self) -> Option<u8> {
-        self.buffer.inner.front().cloned()
+        self.buffer.inner.data().first().cloned()
     }
 }

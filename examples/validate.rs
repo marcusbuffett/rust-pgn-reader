@@ -1,7 +1,7 @@
 // Validates moves in PGNs.
 // Usage: cargo run --release --example validate -- [PGN]...
 
-use std::{env, fs::File, io};
+use std::{env, fs::File, io, process};
 
 use pgn_reader::{BufferedReader, RawHeader, SanPlus, Skip, Visitor};
 use shakmaty::{fen::Fen, CastlingMode, Chess, Position};
@@ -86,22 +86,40 @@ impl Visitor for Validator {
 }
 
 fn main() -> io::Result<()> {
-    let mut success = true;
+    let mut all_ok = true;
 
     for arg in env::args().skip(1) {
+        let mut file_ok = true;
+
         let file = File::open(&arg)?;
-        let mut reader = BufferedReader::new(file);
+
+        let uncompressed: Box<dyn io::Read> = if arg.ends_with(".zst") {
+            Box::new(zstd::Decoder::new(file)?)
+        } else if arg.ends_with(".bz2") {
+            Box::new(bzip2::read::MultiBzDecoder::new(file))
+        } else if arg.ends_with(".xz") {
+            Box::new(xz2::read::XzDecoder::new(file))
+        } else if arg.ends_with(".gz") {
+            Box::new(flate2::read::GzDecoder::new(file))
+        } else if arg.ends_with(".lz4") {
+            Box::new(lz4::Decoder::new(file)?)
+        } else {
+            Box::new(file)
+        };
+
+        let mut reader = BufferedReader::new(uncompressed);
 
         let mut validator = Validator::new();
         while let Some(ok) = reader.read_game(&mut validator)? {
-            success &= ok;
+            file_ok &= ok;
         }
 
-        println!("{}: {}", arg, if success { "success" } else { "errors" });
+        println!("{}: {}", arg, if file_ok { "success" } else { "errors" });
+        all_ok &= file_ok;
     }
 
-    if !success {
-        ::std::process::exit(1);
+    if !all_ok {
+        process::exit(1);
     }
 
     Ok(())
