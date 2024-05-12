@@ -123,7 +123,7 @@ trait AsyncReadPgn {
         Ok(())
     }
 
-    fn read_headers<V: AsyncVisitor>(&mut self, visitor: &mut V) -> Result<(), Self::Err> {
+    async fn read_headers<V: AsyncVisitor>(&mut self, visitor: &mut V) -> Result<(), Self::Err> {
         while let Some(ch) = self.fill_buffer_and_peek()? {
             match ch {
                 b'[' => {
@@ -173,10 +173,12 @@ trait AsyncReadPgn {
                         }
                     };
 
-                    visitor.header(
-                        &self.buffer()[..space],
-                        RawHeader(&self.buffer()[value_start..right_quote]),
-                    );
+                    visitor
+                        .header(
+                            &self.buffer()[..space],
+                            RawHeader(&self.buffer()[value_start..right_quote]),
+                        )
+                        .await;
                     self.consume(consumed);
                     self.skip_ket()?;
                 }
@@ -252,7 +254,9 @@ trait AsyncReadPgn {
                         return Err(Self::invalid_data());
                     };
 
-                    visitor.comment(RawComment(&self.buffer()[..right_brace]));
+                    visitor
+                        .comment(RawComment(&self.buffer()[..right_brace]))
+                        .await;
                     self.consume(right_brace + 1);
                 }
                 b'\n' => {
@@ -283,12 +287,14 @@ trait AsyncReadPgn {
                     self.bump();
                     if self.buffer().starts_with(b"-0") {
                         self.consume(2);
-                        visitor.outcome(Some(Outcome::Decisive {
-                            winner: Color::White,
-                        }));
+                        visitor
+                            .outcome(Some(Outcome::Decisive {
+                                winner: Color::White,
+                            }))
+                            .await;
                     } else if self.buffer().starts_with(b"/2-1/2") {
                         self.consume(6);
-                        visitor.outcome(Some(Outcome::Draw));
+                        visitor.outcome(Some(Outcome::Draw)).await;
                     } else {
                         let token_end = self.find_token_end(0);
                         self.consume(token_end);
@@ -298,9 +304,11 @@ trait AsyncReadPgn {
                     self.bump();
                     if self.buffer().starts_with(b"-1") {
                         self.consume(2);
-                        visitor.outcome(Some(Outcome::Decisive {
-                            winner: Color::Black,
-                        }));
+                        visitor
+                            .outcome(Some(Outcome::Decisive {
+                                winner: Color::Black,
+                            }))
+                            .await;
                     } else if self.buffer().starts_with(b"-0") {
                         // Castling notation with zeros.
                         self.consume(2);
@@ -334,13 +342,13 @@ trait AsyncReadPgn {
                 }
                 b')' => {
                     self.bump();
-                    visitor.end_variation();
+                    visitor.end_variation().await;
                 }
                 b'$' => {
                     self.bump();
                     let token_end = self.find_token_end(0);
                     if let Ok(nag) = btoi::btou(&self.buffer()[..token_end]) {
-                        visitor.nag(Nag(nag));
+                        visitor.nag(Nag(nag)).await;
                     }
                     self.consume(token_end);
                 }
@@ -349,14 +357,14 @@ trait AsyncReadPgn {
                     match self.peek() {
                         Some(b'!') => {
                             self.bump();
-                            visitor.nag(Nag::BRILLIANT_MOVE);
+                            visitor.nag(Nag::BRILLIANT_MOVE).await;
                         }
                         Some(b'?') => {
                             self.bump();
-                            visitor.nag(Nag::SPECULATIVE_MOVE);
+                            visitor.nag(Nag::SPECULATIVE_MOVE).await;
                         }
                         _ => {
-                            visitor.nag(Nag::GOOD_MOVE);
+                            visitor.nag(Nag::GOOD_MOVE).await;
                         }
                     }
                 }
@@ -365,19 +373,19 @@ trait AsyncReadPgn {
                     match self.peek() {
                         Some(b'!') => {
                             self.bump();
-                            visitor.nag(Nag::DUBIOUS_MOVE);
+                            visitor.nag(Nag::DUBIOUS_MOVE).await;
                         }
                         Some(b'?') => {
                             self.bump();
-                            visitor.nag(Nag::BLUNDER);
+                            visitor.nag(Nag::BLUNDER).await;
                         }
                         _ => {
-                            visitor.nag(Nag::MISTAKE);
+                            visitor.nag(Nag::MISTAKE).await;
                         }
                     }
                 }
                 b'*' => {
-                    visitor.outcome(None);
+                    visitor.outcome(None).await;
                     self.bump();
                 }
                 b' ' | b'\t' | b'\r' | b'P' | b'.' => {
@@ -467,7 +475,7 @@ trait AsyncReadPgn {
 
         visitor.begin_game().await;
         visitor.begin_headers().await;
-        self.read_headers(visitor)?;
+        self.read_headers(visitor).await?;
         if let Skip(false) = visitor.end_headers().await {
             self.read_movetext(visitor).await?;
         } else {
