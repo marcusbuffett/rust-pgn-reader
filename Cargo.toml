@@ -16,6 +16,7 @@ btoi = "0.4"
 shakmaty = "0.27"
 circular = "0.3"
 async-trait = "0.1.52"
+tokio = {version = "1.37.0", features = ["macros", "rt-multi-thread"]}
 
 [dev-dependencies]
 crossbeam = "0.8"

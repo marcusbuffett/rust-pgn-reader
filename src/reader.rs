@@ -328,7 +328,7 @@ trait AsyncReadPgn {
                 }
                 b'(' => {
                     self.bump();
-                    if let Skip(true) = visitor.begin_variation() {
+                    if let Skip(true) = visitor.begin_variation().await {
                         self.skip_variation()?;
                     }
                 }
@@ -465,10 +465,10 @@ trait AsyncReadPgn {
             return Ok(None);
         }
 
-        visitor.begin_game();
-        visitor.begin_headers();
+        visitor.begin_game().await;
+        visitor.begin_headers().await;
         self.read_headers(visitor)?;
-        if let Skip(false) = visitor.end_headers() {
+        if let Skip(false) = visitor.end_headers().await {
             self.read_movetext(visitor).await?;
         } else {
             self.skip_movetext()?;
@@ -660,53 +660,53 @@ mod tests {
         }
     }
 
-    impl Visitor for GameCounter {
+    impl AsyncVisitor for GameCounter {
         type Result = ();
 
-        fn end_game(&mut self) {
+        async fn end_game(&mut self) {
             self.count += 1;
         }
     }
 
-    #[test]
-    fn test_empty_game() -> Result<(), io::Error> {
+    #[tokio::test]
+    async fn test_empty_game() -> Result<(), io::Error> {
         let mut counter = GameCounter::default();
         let mut reader = AsyncBufferedReader::new(io::Cursor::new(b"  "));
-        reader.read_game(&mut counter)?;
+        reader.read_game(&mut counter).await?;
         assert_eq!(counter.count, 0);
         Ok(())
     }
 
-    #[test]
-    fn test_trailing_space() -> Result<(), io::Error> {
+    #[tokio::test]
+    async fn test_trailing_space() -> Result<(), io::Error> {
         let mut counter = GameCounter::default();
         let mut reader = AsyncBufferedReader::new(io::Cursor::new(b"1. e4 1-0\n\n\n\n\n  \n"));
-        reader.read_game(&mut counter)?;
+        reader.read_game(&mut counter).await?;
         assert_eq!(counter.count, 1);
-        reader.read_game(&mut counter)?;
+        reader.read_game(&mut counter).await?;
         assert_eq!(counter.count, 1);
         Ok(())
     }
 
-    #[test]
-    fn test_nag() -> Result<(), io::Error> {
+    #[tokio::test]
+    async fn test_nag() -> Result<(), io::Error> {
         struct NagCollector {
             nags: Vec<Nag>,
         }
 
-        impl Visitor for NagCollector {
+        impl AsyncVisitor for NagCollector {
             type Result = ();
 
-            fn nag(&mut self, nag: Nag) {
+            async fn nag(&mut self, nag: Nag) {
                 self.nags.push(nag);
             }
 
-            fn end_game(&mut self) {}
+            async fn end_game(&mut self) -> Self::Result {}
         }
 
         let mut collector = NagCollector { nags: Vec::new() };
         let mut reader = AsyncBufferedReader::new(io::Cursor::new(b"1.f3! e5$71 2.g4?? Qh4#!?"));
-        reader.read_game(&mut collector)?;
+        reader.read_game(&mut collector).await?;
         assert_eq!(
             collector.nags,
             vec![Nag::GOOD_MOVE, Nag(71), Nag::BLUNDER, Nag::SPECULATIVE_MOVE]
@@ -714,25 +714,25 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_null_moves() -> Result<(), io::Error> {
+    #[tokio::test]
+    async fn test_null_moves() -> Result<(), io::Error> {
         struct SanCollector {
             sans: Vec<San>,
         }
 
-        impl Visitor for SanCollector {
+        impl AsyncVisitor for SanCollector {
             type Result = ();
 
-            fn san(&mut self, san: SanPlus) {
+            async fn san(&mut self, san: SanPlus) {
                 self.sans.push(san.san);
             }
 
-            fn end_game(&mut self) {}
+            async fn end_game(&mut self) {}
         }
 
         let mut collector = SanCollector { sans: Vec::new() };
         let mut reader = AsyncBufferedReader::new(io::Cursor::new(b"1. e4 -- 2. Nf3 -- 3. -- e5"));
-        reader.read_game(&mut collector)?;
+        reader.read_game(&mut collector).await?;
         assert_eq!(collector.sans.len(), 6);
         assert_ne!(collector.sans[0], San::Null);
         assert_eq!(collector.sans[1], San::Null);
