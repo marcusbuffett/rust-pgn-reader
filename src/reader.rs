@@ -5,7 +5,7 @@ use std::{
 
 use shakmaty::{
     san::{San, SanPlus, Suffix},
-    CastlingSide, Color, Outcome,
+    CastlingSide, Color, KnownOutcome, Outcome,
 };
 
 // use slice_deque::SliceDeque;
@@ -288,13 +288,15 @@ trait AsyncReadPgn {
                     if self.buffer().starts_with(b"-0") {
                         self.consume(2);
                         visitor
-                            .outcome(Some(Outcome::Decisive {
+                            .outcome(Some(Outcome::Known(KnownOutcome::Decisive {
                                 winner: Color::White,
-                            }))
+                            })))
                             .await;
                     } else if self.buffer().starts_with(b"/2-1/2") {
                         self.consume(6);
-                        visitor.outcome(Some(Outcome::Draw)).await;
+                        visitor
+                            .outcome(Some(Outcome::Known(KnownOutcome::Draw)))
+                            .await;
                     } else {
                         let token_end = self.find_token_end(0);
                         self.consume(token_end);
@@ -305,9 +307,9 @@ trait AsyncReadPgn {
                     if self.buffer().starts_with(b"-1") {
                         self.consume(2);
                         visitor
-                            .outcome(Some(Outcome::Decisive {
+                            .outcome(Some(Outcome::Known(KnownOutcome::Decisive {
                                 winner: Color::Black,
-                            }))
+                            })))
                             .await;
                     } else if self.buffer().starts_with(b"-0") {
                         // Castling notation with zeros.
@@ -1018,12 +1020,12 @@ trait ReadPgn {
                     self.bump();
                     if self.buffer().starts_with(b"-0") {
                         self.consume(2);
-                        visitor.outcome(Some(Outcome::Decisive {
+                        visitor.outcome(Some(Outcome::Known(KnownOutcome::Decisive {
                             winner: Color::White,
-                        }));
+                        })));
                     } else if self.buffer().starts_with(b"/2-1/2") {
                         self.consume(6);
-                        visitor.outcome(Some(Outcome::Draw));
+                        visitor.outcome(Some(Outcome::Known(KnownOutcome::Draw)));
                     } else {
                         let token_end = self.find_token_end(0);
                         self.consume(token_end);
@@ -1033,9 +1035,9 @@ trait ReadPgn {
                     self.bump();
                     if self.buffer().starts_with(b"-1") {
                         self.consume(2);
-                        visitor.outcome(Some(Outcome::Decisive {
+                        visitor.outcome(Some(Outcome::Known(KnownOutcome::Decisive {
                             winner: Color::Black,
-                        }));
+                        })));
                     } else if self.buffer().starts_with(b"-0") {
                         // Castling notation with zeros.
                         self.consume(2);
